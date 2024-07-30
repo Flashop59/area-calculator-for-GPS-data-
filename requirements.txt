@@ -3,3 +3,4 @@ pandas
 geopandas
 folium
 scikit-learn
+streamlit-folium
