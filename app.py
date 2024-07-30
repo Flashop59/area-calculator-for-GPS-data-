@@ -78,8 +78,9 @@ def process_file(file):
     
     # Create a satellite map
     map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-    m = folium.Map(location=map_center, zoom_start=12, tiles='Stamen Terrain', attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.')
-    folium.TileLayer('satellite').add_to(m)
+    m = folium.Map(location=map_center, zoom_start=12)
+    folium.TileLayer('Stamen Terrain', attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.').add_to(m)
+    folium.TileLayer('satellite', attr='Google Maps Satellite Imagery').add_to(m)
     
     # Add fullscreen control
     folium.plugins.Fullscreen(position='topright').add_to(m)
