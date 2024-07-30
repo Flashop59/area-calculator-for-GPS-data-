@@ -5,6 +5,7 @@ from shapely.geometry import Polygon
 from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull
 import folium
+from folium import plugins
 from streamlit_folium import st_folium
 import io
 
@@ -63,27 +64,44 @@ def process_file(file):
     field_times = fields.groupby('field_id').apply(
         lambda df: (df['Timestamp'].max() - df['Timestamp'].min()).total_seconds() / 60.0
     )
-    
+
+    # Extract start and end dates for each field
+    field_dates = fields.groupby('field_id').agg(
+        start_date=('Timestamp', 'min'),
+        end_date=('Timestamp', 'max')
+    )
+
     # Filter out fields with area less than 5 gunthas
     valid_fields = field_areas_gunthas[field_areas_gunthas >= 5].index
     field_areas_gunthas = field_areas_gunthas[valid_fields]
     field_times = field_times[valid_fields]
+    field_dates = field_dates.loc[valid_fields]
 
-    # Combine area and time into a single DataFrame
+    # Combine area, time, and dates into a single DataFrame
     combined_df = pd.DataFrame({
         'Field ID': field_areas_gunthas.index,
         'Area (Gunthas)': field_areas_gunthas.values,
-        'Time (Minutes)': field_times.values
+        'Time (Minutes)': field_times.values,
+        'Start Date': field_dates['start_date'].values,
+        'End Date': field_dates['end_date'].values
     })
     
     # Create a satellite map
     map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
     m = folium.Map(location=map_center, zoom_start=12)
-    folium.TileLayer('Stamen Terrain', attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.').add_to(m)
-    folium.TileLayer('satellite', attr='Google Maps Satellite Imagery').add_to(m)
+    
+    # Add Mapbox satellite imagery
+    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo4b2R6OTYwM3p1Mm5xejJnZG1peHl3In0.Bg2ox2WZ0dF18eGGvB9MdA'  # Replace with your Mapbox access token
+    folium.TileLayer(
+        tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
+        attr='Mapbox Satellite Imagery',
+        name='Satellite',
+        overlay=True,
+        control=True
+    ).add_to(m)
     
     # Add fullscreen control
-    folium.plugins.Fullscreen(position='topright').add_to(m)
+    plugins.Fullscreen(position='topright').add_to(m)
 
     # Plot the points on the map
     for idx, row in gps_data.iterrows():
@@ -109,7 +127,7 @@ if uploaded_file is not None:
     folium_map, combined_df = process_file(uploaded_file)
     
     if folium_map is not None:
-        st.write("Field Areas and Times:", combined_df)
+        st.write("Field Areas, Times, and Dates:", combined_df)
         st.write("Download the combined data as a CSV file:")
         
         # Provide download link
@@ -117,7 +135,7 @@ if uploaded_file is not None:
         st.download_button(
             label="Download CSV",
             data=csv,
-            file_name='field_areas_and_times.csv',
+            file_name='field_areas_times_and_dates.csv',
             mime='text/csv'
         )
         
