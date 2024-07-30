@@ -30,7 +30,7 @@ def process_file(file):
     # Use the correct column names
     if 'Timestamp' not in gps_data.columns:
         st.error("The CSV file does not contain a 'Timestamp' column.")
-        return None, None, None
+        return None, None
     
     gps_data = gps_data[['lat', 'lng', 'Timestamp']]
     
@@ -78,7 +78,11 @@ def process_file(file):
     
     # Create a satellite map
     map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-    m = folium.Map(location=map_center, zoom_start=12, tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr='© CartoDB')
+    m = folium.Map(location=map_center, zoom_start=12, tiles='Stamen Terrain', attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.')
+    folium.TileLayer('satellite').add_to(m)
+    
+    # Add fullscreen control
+    folium.plugins.Fullscreen(position='topright').add_to(m)
 
     # Plot the points on the map
     for idx, row in gps_data.iterrows():
