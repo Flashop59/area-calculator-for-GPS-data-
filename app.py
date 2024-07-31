@@ -9,6 +9,7 @@ from folium import plugins
 from streamlit_folium import st_folium
 import io
 from geopy.distance import geodesic
+import base64
 
 # Function to calculate the area of a field in square meters using convex hull
 def calculate_convex_hull_area(points):
@@ -109,7 +110,7 @@ def process_file(file):
     m = folium.Map(location=map_center, zoom_start=12)
     
     # Add Mapbox satellite imagery
-    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
+    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'
     folium.TileLayer(
         tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
         attr='Mapbox Satellite Imagery',
@@ -134,6 +135,14 @@ def process_file(file):
 
     return m, combined_df
 
+# Function to generate a download link for the map
+def get_map_download_link(map_obj, filename='map.html'):
+    # Save the map to an HTML file
+    map_html = map_obj._repr_html_()
+    b64 = base64.b64encode(map_html.encode()).decode()
+    href = f'<a href="data:file/html;base64,{b64}" download="{filename}">Download Map</a>'
+    return href
+
 # Streamlit app
 st.title("Field Area and Time Calculation from GPS Data")
 st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
@@ -148,7 +157,7 @@ if uploaded_file is not None:
         st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
         st.write("Download the combined data as a CSV file:")
         
-        # Provide download link
+        # Provide download link for CSV
         csv = combined_df.to_csv(index=False)
         st.download_button(
             label="Download CSV",
@@ -158,5 +167,9 @@ if uploaded_file is not None:
         )
         
         st_folium(folium_map, width=725, height=500)
+        
+        # Provide download link for map
+        map_download_link = get_map_download_link(folium_map)
+        st.markdown(map_download_link, unsafe_allow_html=True)
     else:
         st.error("Failed to process the file.")
