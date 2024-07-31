@@ -6,7 +6,6 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull
 import folium
 from folium import plugins
-from streamlit_folium import st_folium
 import io
 from geopy.distance import geodesic
 import base64
@@ -165,8 +164,6 @@ if uploaded_file is not None:
             file_name='field_areas_times_dates_and_travel_metrics.csv',
             mime='text/csv'
         )
-        
-        st_folium(folium_map, width=725, height=500)
         
         # Provide download link for map
         map_download_link = get_map_download_link(folium_map)
