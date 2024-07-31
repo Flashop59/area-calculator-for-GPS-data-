@@ -9,6 +9,16 @@ from folium import plugins
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
 
+def calculate_convex_hull_area(points):
+    if len(points) < 3:
+        return 0
+    try:
+        hull = ConvexHull(points)
+        poly = Polygon(points[hull.vertices])
+        return poly.area
+    except Exception:
+        return 0
+
 def process_file(file):
     try:
         gps_data = pd.read_csv(file)
@@ -122,3 +132,7 @@ if st.session_state.folium_map is not None and st.session_state.combined_df is n
         label="Download CSV",
         data=csv,
         file_name='field_areas_times_dates_and_travel_metrics.csv',
+        mime='text/csv'
+    )
+    
+    st_folium(st.session_state.folium_map, width=725, height=500)
