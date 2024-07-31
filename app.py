@@ -1,75 +1,76 @@
-import folium
 import pandas as pd
+import folium
+from folium import plugins
 import streamlit as st
+from io import StringIO
+import numpy as np
 
-def process_file(uploaded_file):
-    # Read the file
-    gps_data = pd.read_excel(uploaded_file)
+# Define the Mapbox token
+MAPBOX_TOKEN = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'
+
+def process_file(file):
+    # Read the file into a DataFrame
+    df = pd.read_csv(file)
     
-    # Ensure 'Timestamp' column is in datetime format
-    gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H:%M')
+    # Display column names
+    st.write(f"Columns in the file: {df.columns.tolist()}")
+
+    # Handle timestamp format
+    try:
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%d-%m-%Y %H:%M', errors='coerce')
+    except Exception as e:
+        st.error(f"Error parsing dates: {e}")
+        return None, None, None, None
     
-    # Calculate field areas and time metrics
-    field_areas_gunthas = gps_data['Estimated Area (gunthas):'].dropna().astype(float).tolist()
-    total_time_minutes = gps_data['Time (min):'].dropna().astype(float).sum()
-    avg_time_diff_minutes = gps_data['Time Difference (s)'].mean() / 60
+    # Filter necessary columns
+    gps_data = df[['lat', 'lng', 'Timestamp']].dropna()
     
-    # Calculate distance and time between fields
-    gps_data['distance_next_field'] = gps_data['LatLong Distance (m)'].shift(-1).fillna(0)
-    gps_data['time_next_field'] = gps_data['Time Difference (s)'].shift(-1).fillna(0) / 60
+    # Calculate time metrics
+    gps_data['Time Difference (s)'] = gps_data['Timestamp'].diff().dt.total_seconds().fillna(0)
+    total_time_seconds = gps_data['Time Difference (s)'].sum()
+    total_time_minutes = total_time_seconds / 60
     
-    # Map settings
-    map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-    map_token = 'YOUR_MAPBOX_TOKEN'  # Replace with your Mapbox token
-    
-    # Create a Folium map with Mapbox satellite tiles
+    # Create folium map
     m = folium.Map(
-        location=map_center,
-        zoom_start=12,
-        tiles=f'https://api.mapbox.com/styles/v1/{map_token}/tiles/{{z}}/{{x}}/{{y}}?access_token={map_token}',
-        attr='Mapbox'
+        location=[gps_data['lat'].mean(), gps_data['lng'].mean()],
+        zoom_start=15,
+        tiles=f'https://api.mapbox.com/styles/v1/{MAPBOX_TOKEN}/tiles/{{z}}/{{x}}/{{y}}?access_token={MAPBOX_TOKEN}',
     )
     
-    # Add points to the map
-    for i, row in gps_data.iterrows():
-        folium.Marker(
-            location=[row['lat'], row['lng']],
-            popup=f"Time: {row['Timestamp']}<br>Speed: {row['Speed (km/hr)']} km/hr",
-            icon=folium.Icon(color='blue')
-        ).add_to(m)
+    # Add markers to map
+    for idx, row in gps_data.iterrows():
+        folium.Marker([row['lat'], row['lng']], popup=row['Timestamp']).add_to(m)
     
-    # Create a DataFrame to display
-    data = {
-        'Field Index': range(1, len(field_areas_gunthas) + 1),
-        'Estimated Area (gunthas)': field_areas_gunthas,
-        'Total Time (minutes)': [total_time_minutes] * len(field_areas_gunthas),
-        'Avg Time Difference (minutes)': [avg_time_diff_minutes] * len(field_areas_gunthas),
-        'Distance to Next Field (m)': gps_data['distance_next_field'],
-        'Time to Next Field (minutes)': gps_data['time_next_field']
-    }
+    # Prepare area and time metrics
+    field_areas = df[['Estimated Area (gunthas):', 'Time (min):']].dropna()
     
-    combined_df = pd.DataFrame(data)
+    # Combine time and area metrics into one table
+    combined_metrics = field_areas.copy()
+    combined_metrics.columns = ['Area (gunthas)', 'Time (min)']
     
-    return m, combined_df
-
-# Streamlit interface
-st.title("GPS Data Analysis")
-
-uploaded_file = st.file_uploader("Upload GPS Data File", type="xlsx")
-
-if uploaded_file:
-    folium_map, combined_df = process_file(uploaded_file)
-    
-    st.write("Map with GPS Data")
-    st.markdown(folium_map._repr_html_(), unsafe_allow_html=True)
-    
-    st.write("Data Summary")
-    st.dataframe(combined_df)
-    
-    # Download the combined DataFrame
+    # Save the table to a CSV
+    csv_data = combined_metrics.to_csv(index=False)
     st.download_button(
-        label="Download CSV",
-        data=combined_df.to_csv(index=False).encode('utf-8'),
-        file_name='combined_data.csv',
+        label="Download Metrics as CSV",
+        data=csv_data,
+        file_name='field_metrics.csv',
         mime='text/csv'
     )
+
+    return m, total_time_minutes, combined_metrics
+
+st.title('Field Analysis App')
+uploaded_file = st.file_uploader("Choose a CSV file")
+
+if uploaded_file is not None:
+    folium_map, total_time_minutes, combined_metrics = process_file(uploaded_file)
+    
+    if folium_map:
+        # Display the map
+        st.write(f"Total time taken (minutes): {total_time_minutes:.2f}")
+        st.write("Metrics Table:")
+        st.dataframe(combined_metrics)
+        
+        # Convert folium map to HTML
+        map_html = folium_map._repr_html_()
+        st.components.v1.html(map_html, height=500)
