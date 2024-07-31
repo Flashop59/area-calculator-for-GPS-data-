@@ -1,6 +1,9 @@
 streamlit
 pandas
-geopandas
-folium
+numpy
+shapely
 scikit-learn
+scipy
+folium
 streamlit-folium
+geopy
