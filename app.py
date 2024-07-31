@@ -49,10 +49,6 @@ def process_file(file):
 
         # Calculate the area for each field
         fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
-        if fields.empty:
-            st.error("No fields detected. Please check your data.")
-            return None, None
-        
         field_areas = fields.groupby('field_id').apply(
             lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
 
@@ -79,69 +75,47 @@ def process_file(file):
         field_times = field_times[valid_fields]
         field_dates = field_dates.loc[valid_fields]
 
-        if field_dates.empty:
-            st.error("No valid fields with sufficient area found.")
-            return None, None
-
         # Identify red points (noise)
         noise_points = gps_data[gps_data['field_id'] == -1]
 
-        # Calculate distances and times
-        distances = []
-        times = []
+        # Calculate traveling distance and time between red points
+        travel_distances = []
+        travel_times = []
+        if not noise_points.empty:
+            noise_points_sorted = noise_points.sort_values(by='Timestamp')
 
-        # Calculate distance and time from red points to nearest field start
-        for idx, red_point in noise_points.iterrows():
-            nearest_field_start = fields.groupby('field_id').first().reset_index()
-            distances_to_fields = [geodesic((red_point['lat'], red_point['lng']), (row['lat'], row['lng'])).meters
-                                   for idx, row in nearest_field_start.iterrows()]
-            times_to_fields = [(nearest_field_start.iloc[i]['start_date'] - red_point['Timestamp']).total_seconds() / 60.0
-                               for i in range(len(nearest_field_start))]
+            for i in range(len(noise_points_sorted) - 1):
+                point1 = noise_points_sorted.iloc[i]
+                point2 = noise_points_sorted.iloc[i + 1]
+                end_point = (point1['lat'], point1['lng'])
+                start_point = (point2['lat'], point2['lng'])
+                distance = geodesic(end_point, start_point).meters
+                time = (point2['Timestamp'] - point1['Timestamp']).total_seconds() / 60.0
+                travel_distances.append(distance)
+                travel_times.append(time)
 
-            min_distance_index = np.argmin(distances_to_fields)
-            distances.append(distances_to_fields[min_distance_index])
-            times.append(times_to_fields[min_distance_index])
-
-        # Append NaNs for the last field
-        distances.append(np.nan)
-        times.append(np.nan)
-
-        # Include distance and time for reaching from the start to the first field
-        if not fields.empty:
-            first_field = fields.groupby('field_id').first().reset_index()
-            start_point = gps_data.iloc[0]
-            distances = [geodesic((start_point['lat'], start_point['lng']), (first_field.iloc[0]['lat'], first_field.iloc[0]['lng'])).meters] + distances
-            times = [(first_field.iloc[0]['start_date'] - start_point['Timestamp']).total_seconds() / 60.0] + times
-
-        # Calculate travel distance and time between fields
-        field_ids = list(valid_fields)
-        for i in range(len(field_ids) - 1):
-            end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-            start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
-            distance = geodesic(end_point, start_point).meters
-            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
-            distances.append(distance)
-            times.append(time)
-
-        distances.append(np.nan)  # No travel distance for the last field
-        times.append(np.nan)  # No travel time for the last field
+            # Ensure lengths match by appending NaNs if necessary
+            travel_distances.append(np.nan)
+            travel_times.append(np.nan)
+        else:
+            travel_distances = [np.nan] * len(valid_fields)
+            travel_times = [np.nan] * len(valid_fields)
 
         # Ensure lengths match
-        total_points = len(valid_fields) + len(noise_points) + 1
-        if len(distances) < total_points:
-            distances.extend([np.nan] * (total_points - len(distances)))
-        if len(times) < total_points:
-            times.extend([np.nan] * (total_points - len(times)))
+        if len(travel_distances) != len(valid_fields):
+            travel_distances = (travel_distances + [np.nan] * len(valid_fields))[:len(valid_fields)]
+        if len(travel_times) != len(valid_fields):
+            travel_times = (travel_times + [np.nan] * len(valid_fields))[:len(valid_fields)]
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
-            'Field ID': list(valid_fields) + ['Total'],
-            'Area (Gunthas)': list(field_areas_gunthas.values) + [np.nan],
-            'Time (Minutes)': list(field_times.values) + [np.nan],
-            'Start Date': list(field_dates['start_date'].values) + [np.nan],
-            'End Date': list(field_dates['end_date'].values) + [np.nan],
-            'Travel Distance to Field (meters)': distances,
-            'Travel Time to Field (minutes)': times
+            'Field ID': field_areas_gunthas.index,
+            'Area (Gunthas)': field_areas_gunthas.values,
+            'Time (Minutes)': field_times.values,
+            'Start Date': field_dates['start_date'].values,
+            'End Date': field_dates['end_date'].values,
+            'Travel Distance to Next Field (meters)': travel_distances,
+            'Travel Time to Next Field (minutes)': travel_times
         })
 
         # Create a satellite map
@@ -195,9 +169,10 @@ if 'folium_map' not in st.session_state:
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file is not None:
-    st.session_state.uploaded_file = uploaded_file
-    st.write("Processing file...")
-    st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
+    if uploaded_file.name != st.session_state.uploaded_file:
+        st.session_state.uploaded_file = uploaded_file
+        st.write("Processing file...")
+        st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
 
 if st.session_state.folium_map is not None and st.session_state.combined_df is not None:
     st.write("Field Areas, Times, Dates, and Travel Metrics:", st.session_state.combined_df)
