@@ -75,20 +75,26 @@ def process_file(file):
         field_times = field_times[valid_fields]
         field_dates = field_dates.loc[valid_fields]
 
-        # Calculate traveling distance and time between fields using end and start points
+        # Identify red points (noise)
+        noise_points = gps_data[gps_data['field_id'] == -1]
+
+        # Calculate traveling distance and time between red points
         travel_distances = []
         travel_times = []
-        field_ids = list(valid_fields)
-        for i in range(len(field_ids) - 1):
-            end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-            start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
+        noise_points_sorted = noise_points.sort_values(by='Timestamp')
+
+        for i in range(len(noise_points_sorted) - 1):
+            point1 = noise_points_sorted.iloc[i]
+            point2 = noise_points_sorted.iloc[i + 1]
+            end_point = (point1['lat'], point1['lng'])
+            start_point = (point2['lat'], point2['lng'])
             distance = geodesic(end_point, start_point).meters
-            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+            time = (point2['Timestamp'] - point1['Timestamp']).total_seconds() / 60.0
             travel_distances.append(distance)
             travel_times.append(time)
 
-        travel_distances.append(np.nan)  # No travel distance for the last field
-        travel_times.append(np.nan)  # No travel time for the last field
+        travel_distances.append(np.nan)  # No travel distance for the last point
+        travel_times.append(np.nan)  # No travel time for the last point
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
@@ -100,6 +106,12 @@ def process_file(file):
             'Travel Distance to Next Field (meters)': travel_distances,
             'Travel Time to Next Field (minutes)': travel_times
         })
+
+        # Add red points to the DataFrame for download
+        if not noise_points.empty:
+            noise_points_df = noise_points[['lat', 'lng', 'Timestamp']].copy()
+            noise_points_df['Type'] = 'Red Point'
+            combined_df = pd.concat([combined_df, noise_points_df], ignore_index=True)
 
         # Create a satellite map
         map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
