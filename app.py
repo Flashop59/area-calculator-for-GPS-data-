@@ -181,7 +181,7 @@ st.markdown("""
         .header img { height: 60px; margin-right: 20px; }
     </style>
     <div class="header">
-        <img src="https://github.com/Flashop59/area-calculator-for-GPS-data-/blob/main/image.png?raw=true" alt="Logo">
+        <img src="https://i.imgur.com/q7XmNAh.jpg" alt="Logo">
         <h1>Field Area and Time Calculation from GPS Data</h1>
     </div>
 """, unsafe_allow_html=True)
