@@ -78,44 +78,53 @@ def process_file(file):
         # Identify red points (noise)
         noise_points = gps_data[gps_data['field_id'] == -1]
 
-        # Calculate traveling distance and time between red points
-        travel_distances = []
-        travel_times = []
-        if not noise_points.empty:
-            noise_points_sorted = noise_points.sort_values(by='Timestamp')
+        # Calculate distances and times from start to fields and between fields
+        distances = []
+        times = []
 
-            for i in range(len(noise_points_sorted) - 1):
-                point1 = noise_points_sorted.iloc[i]
-                point2 = noise_points_sorted.iloc[i + 1]
-                end_point = (point1['lat'], point1['lng'])
-                start_point = (point2['lat'], point2['lng'])
-                distance = geodesic(end_point, start_point).meters
-                time = (point2['Timestamp'] - point1['Timestamp']).total_seconds() / 60.0
-                travel_distances.append(distance)
-                travel_times.append(time)
+        # For each valid field, calculate the distance from the last point (or start) to the field and time
+        last_point = None
+        for field_id in valid_fields:
+            field_points = fields[fields['field_id'] == field_id]
+            field_start = field_points.iloc[0]
+            field_end = field_points.iloc[-1]
 
-            # Ensure lengths match by appending NaNs if necessary
-            travel_distances.append(np.nan)
-            travel_times.append(np.nan)
-        else:
-            travel_distances = [np.nan] * len(valid_fields)
-            travel_times = [np.nan] * len(valid_fields)
+            if last_point is not None:
+                # Calculate distance and time from last point to the start of the field
+                distance_to_field = geodesic((last_point['lat'], last_point['lng']), (field_start['lat'], field_start['lng'])).meters
+                time_to_field = (field_start['Timestamp'] - last_point['Timestamp']).total_seconds() / 60.0
+
+                distances.append(distance_to_field)
+                times.append(time_to_field)
+            
+            last_point = field_end
+
+        # Append NaNs for the last field
+        distances.append(np.nan)
+        times.append(np.nan)
+
+        # Include distance and time for reaching from the start to the first field
+        if not fields.empty:
+            first_field = fields.groupby('field_id').first().reset_index()
+            start_point = gps_data.iloc[0]
+            distances = [geodesic((start_point['lat'], start_point['lng']), (first_field.iloc[0]['lat'], first_field.iloc[0]['lng'])).meters] + distances
+            times = [(first_field.iloc[0]['Timestamp'] - start_point['Timestamp']).total_seconds() / 60.0] + times
 
         # Ensure lengths match
-        if len(travel_distances) != len(valid_fields):
-            travel_distances = (travel_distances + [np.nan] * len(valid_fields))[:len(valid_fields)]
-        if len(travel_times) != len(valid_fields):
-            travel_times = (travel_times + [np.nan] * len(valid_fields))[:len(valid_fields)]
+        if len(distances) != len(valid_fields) + 1:
+            distances = (distances + [np.nan] * (len(valid_fields) + 1))[:len(valid_fields) + 1]
+        if len(times) != len(valid_fields) + 1:
+            times = (times + [np.nan] * (len(valid_fields) + 1))[:len(valid_fields) + 1]
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
-            'Field ID': field_areas_gunthas.index,
-            'Area (Gunthas)': field_areas_gunthas.values,
-            'Time (Minutes)': field_times.values,
-            'Start Date': field_dates['start_date'].values,
-            'End Date': field_dates['end_date'].values,
-            'Travel Distance to Next Field (meters)': travel_distances,
-            'Travel Time to Next Field (minutes)': travel_times
+            'Field ID': list(valid_fields) + ['Total'],
+            'Area (Gunthas)': list(field_areas_gunthas.values) + [np.nan],
+            'Time (Minutes)': list(field_times.values) + [np.nan],
+            'Start Date': list(field_dates['start_date'].values) + [np.nan],
+            'End Date': list(field_dates['end_date'].values) + [np.nan],
+            'Travel Distance to Field (meters)': distances,
+            'Travel Time to Field (minutes)': times
         })
 
         # Create a satellite map
