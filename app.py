@@ -173,6 +173,19 @@ def get_map_download_link(map_obj, filename='map.html'):
 
 # Streamlit app
 st.title("Field Area and Time Calculation from GPS Data")
+
+# Display logo
+st.markdown("""
+    <style>
+        .header { display: flex; align-items: center; }
+        .header img { height: 60px; margin-right: 20px; }
+    </style>
+    <div class="header">
+        <img src="https://github.com/Flashop59/area-calculator-for-GPS-data-/blob/main/image.png?raw=true" alt="Logo">
+        <h1>Field Area and Time Calculation from GPS Data</h1>
+    </div>
+""", unsafe_allow_html=True)
+
 st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
 
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -185,7 +198,7 @@ if uploaded_file is not None:
         st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
         st.write("Download the combined data as a CSV file:")
         
-        # Provide download link for CSV
+        # Provide download link
         csv = combined_df.to_csv(index=False)
         st.download_button(
             label="Download CSV",
