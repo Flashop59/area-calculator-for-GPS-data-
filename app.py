@@ -81,23 +81,31 @@ def process_file(file):
         # Calculate traveling distance and time between red points
         travel_distances = []
         travel_times = []
-        noise_points_sorted = noise_points.sort_values(by='Timestamp')
+        if not noise_points.empty:
+            noise_points_sorted = noise_points.sort_values(by='Timestamp')
 
-        for i in range(len(noise_points_sorted) - 1):
-            point1 = noise_points_sorted.iloc[i]
-            point2 = noise_points_sorted.iloc[i + 1]
-            end_point = (point1['lat'], point1['lng'])
-            start_point = (point2['lat'], point2['lng'])
-            distance = geodesic(end_point, start_point).meters
-            time = (point2['Timestamp'] - point1['Timestamp']).total_seconds() / 60.0
-            travel_distances.append(distance)
-            travel_times.append(time)
+            for i in range(len(noise_points_sorted) - 1):
+                point1 = noise_points_sorted.iloc[i]
+                point2 = noise_points_sorted.iloc[i + 1]
+                end_point = (point1['lat'], point1['lng'])
+                start_point = (point2['lat'], point2['lng'])
+                distance = geodesic(end_point, start_point).meters
+                time = (point2['Timestamp'] - point1['Timestamp']).total_seconds() / 60.0
+                travel_distances.append(distance)
+                travel_times.append(time)
 
-        # Ensure lengths match by appending NaNs if necessary
-        if len(travel_distances) < len(noise_points_sorted):
+            # Ensure lengths match by appending NaNs if necessary
             travel_distances.append(np.nan)
-        if len(travel_times) < len(noise_points_sorted):
             travel_times.append(np.nan)
+        else:
+            travel_distances = [np.nan] * len(valid_fields)
+            travel_times = [np.nan] * len(valid_fields)
+
+        # Ensure lengths match
+        if len(travel_distances) != len(valid_fields):
+            travel_distances = (travel_distances + [np.nan] * len(valid_fields))[:len(valid_fields)]
+        if len(travel_times) != len(valid_fields):
+            travel_times = (travel_times + [np.nan] * len(valid_fields))[:len(valid_fields)]
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
@@ -109,12 +117,6 @@ def process_file(file):
             'Travel Distance to Next Field (meters)': travel_distances,
             'Travel Time to Next Field (minutes)': travel_times
         })
-
-        # Add red points to the DataFrame for download
-        if not noise_points.empty:
-            noise_points_df = noise_points[['lat', 'lng', 'Timestamp']].copy()
-            noise_points_df['Type'] = 'Red Point'
-            combined_df = pd.concat([combined_df, noise_points_df], ignore_index=True)
 
         # Create a satellite map
         map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
