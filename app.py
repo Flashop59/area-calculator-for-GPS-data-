@@ -100,7 +100,7 @@ def process_file(file):
         'Time (Minutes)': field_times.values,
         'Start Date': field_dates['start_date'].values,
         'End Date': field_dates['end_date'].values,
-        'Travel Distance to Next Field (meters)': travel_distances,
+        'Travel Distance to Next Field (km)': travel_distances * e-3,
         'Travel Time to Next Field (minutes)': travel_times
     })
     
