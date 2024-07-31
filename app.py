@@ -15,8 +15,8 @@ def calculate_convex_hull_area(points):
         return 0
     try:
         hull = ConvexHull(points)
-        poly = Polygon([points[v] for v in hull.vertices])
-        return poly.area * 0.77 * (111000 ** 2)  # Area in square meters
+        poly = Polygon(points[hull.vertices])
+        return poly.area  # Area in square degrees
     except Exception as e:
         st.error(f"Error calculating convex hull area: {e}")
         return 0
@@ -53,8 +53,11 @@ def process_file(file):
         field_areas = fields.groupby('field_id').apply(
             lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
 
+        # Convert the area from square degrees to square meters (approximation)
+        field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
+
         # Convert the area from square meters to gunthas (1 guntha = 101.17 m^2)
-        field_areas_gunthas = field_areas / 101.17
+        field_areas_gunthas = field_areas_m2 / 101.17
 
         # Calculate time metrics for each field
         field_times = fields.groupby('field_id').apply(
