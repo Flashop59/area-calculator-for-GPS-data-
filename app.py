@@ -78,26 +78,21 @@ def process_file(file):
         # Identify red points (noise)
         noise_points = gps_data[gps_data['field_id'] == -1]
 
-        # Calculate distances and times from start to fields and between fields
+        # Calculate distances and times
         distances = []
         times = []
 
-        # For each valid field, calculate the distance from the last point (or start) to the field and time
-        last_point = None
-        for field_id in valid_fields:
-            field_points = fields[fields['field_id'] == field_id]
-            field_start = field_points.iloc[0]
-            field_end = field_points.iloc[-1]
+        # Calculate distance and time from red points to nearest field start
+        for idx, red_point in noise_points.iterrows():
+            nearest_field_start = fields.groupby('field_id').first().reset_index()
+            distances_to_fields = [geodesic((red_point['lat'], red_point['lng']), (row['lat'], row['lng'])).meters
+                                   for idx, row in nearest_field_start.iterrows()]
+            times_to_fields = [(nearest_field_start.iloc[i]['start_date'] - red_point['Timestamp']).total_seconds() / 60.0
+                               for i in range(len(nearest_field_start))]
 
-            if last_point is not None:
-                # Calculate distance and time from last point to the start of the field
-                distance_to_field = geodesic((last_point['lat'], last_point['lng']), (field_start['lat'], field_start['lng'])).meters
-                time_to_field = (field_start['Timestamp'] - last_point['Timestamp']).total_seconds() / 60.0
-
-                distances.append(distance_to_field)
-                times.append(time_to_field)
-            
-            last_point = field_end
+            min_distance_index = np.argmin(distances_to_fields)
+            distances.append(distances_to_fields[min_distance_index])
+            times.append(times_to_fields[min_distance_index])
 
         # Append NaNs for the last field
         distances.append(np.nan)
@@ -108,13 +103,26 @@ def process_file(file):
             first_field = fields.groupby('field_id').first().reset_index()
             start_point = gps_data.iloc[0]
             distances = [geodesic((start_point['lat'], start_point['lng']), (first_field.iloc[0]['lat'], first_field.iloc[0]['lng'])).meters] + distances
-            times = [(first_field.iloc[0]['Timestamp'] - start_point['Timestamp']).total_seconds() / 60.0] + times
+            times = [(first_field.iloc[0]['start_date'] - start_point['Timestamp']).total_seconds() / 60.0] + times
+
+        # Calculate travel distance and time between fields
+        field_ids = list(valid_fields)
+        for i in range(len(field_ids) - 1):
+            end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
+            start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
+            distance = geodesic(end_point, start_point).meters
+            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+            distances.append(distance)
+            times.append(time)
+
+        distances.append(np.nan)  # No travel distance for the last field
+        times.append(np.nan)  # No travel time for the last field
 
         # Ensure lengths match
-        if len(distances) != len(valid_fields) + 1:
-            distances = (distances + [np.nan] * (len(valid_fields) + 1))[:len(valid_fields) + 1]
-        if len(times) != len(valid_fields) + 1:
-            times = (times + [np.nan] * (len(valid_fields) + 1))[:len(valid_fields) + 1]
+        if len(distances) != len(valid_fields) + len(noise_points) + 1:
+            distances = (distances + [np.nan] * (len(valid_fields) + len(noise_points) + 1))[:len(valid_fields) + len(noise_points) + 1]
+        if len(times) != len(valid_fields) + len(noise_points) + 1:
+            times = (times + [np.nan] * (len(valid_fields) + len(noise_points) + 1))[:len(valid_fields) + len(noise_points) + 1]
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
@@ -178,10 +186,9 @@ if 'folium_map' not in st.session_state:
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file is not None:
-    if uploaded_file.name != st.session_state.uploaded_file:
-        st.session_state.uploaded_file = uploaded_file
-        st.write("Processing file...")
-        st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
+    st.session_state.uploaded_file = uploaded_file
+    st.write("Processing file...")
+    st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
 
 if st.session_state.folium_map is not None and st.session_state.combined_df is not None:
     st.write("Field Areas, Times, Dates, and Travel Metrics:", st.session_state.combined_df)
