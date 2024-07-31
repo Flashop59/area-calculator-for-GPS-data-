@@ -6,10 +6,10 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull
 import folium
 from folium import plugins
-from streamlit_folium import st_folium
 from geopy.distance import geodesic
+import os
 
-@st.cache_data
+# Function to calculate the area of a field in square meters using convex hull
 def calculate_convex_hull_area(points):
     if len(points) < 3:  # Not enough points to form a polygon
         return 0
@@ -21,38 +21,62 @@ def calculate_convex_hull_area(points):
         st.error(f"Error calculating convex hull area: {e}")
         return 0
 
-@st.cache_data
+# Function to process the uploaded file and return the HTML map path and field areas
 def process_file(file):
     try:
+        # Load the CSV file
         gps_data = pd.read_csv(file)
 
+        # Check the columns available
         if 'Timestamp' not in gps_data.columns:
             st.error("The CSV file does not contain a 'Timestamp' column.")
             return None, None
         
         gps_data = gps_data[['lat', 'lng', 'Timestamp']]
+        
+        # Convert Timestamp column to datetime with correct format
         gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H.%M', errors='coerce', dayfirst=True)
+        
+        # Drop rows where conversion failed
         gps_data = gps_data.dropna(subset=['Timestamp'])
         
+        # Cluster the GPS points to identify separate fields
         coords = gps_data[['lat', 'lng']].values
         db = DBSCAN(eps=0.00008, min_samples=11).fit(coords)
         labels = db.labels_
 
+        # Add labels to the data
         gps_data['field_id'] = labels
 
-        fields = gps_data[gps_data['field_id'] != -1]
-        field_areas = fields.groupby('field_id').apply(lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
-        field_areas_m2 = field_areas * 0.77 * (111000 ** 2)
+        # Calculate the area for each field
+        fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
+        field_areas = fields.groupby('field_id').apply(
+            lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
+
+        # Convert the area from square degrees to square meters (approximation)
+        field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
+
+        # Convert the area from square meters to gunthas (1 guntha = 101.17 m^2)
         field_areas_gunthas = field_areas_m2 / 101.17
 
-        field_times = fields.groupby('field_id').apply(lambda df: (df['Timestamp'].max() - df['Timestamp'].min()).total_seconds() / 60.0)
-        field_dates = fields.groupby('field_id').agg(start_date=('Timestamp', 'min'), end_date=('Timestamp', 'max'))
+        # Calculate time metrics for each field
+        field_times = fields.groupby('field_id').apply(
+            lambda df: (df['Timestamp'].max() - df['Timestamp'].min()).total_seconds() / 60.0
+        )
 
+        # Extract start and end dates for each field
+        field_dates = fields.groupby('field_id').agg(
+            start_date=('Timestamp', 'min'),
+            end_date=('Timestamp', 'max')
+        )
+
+        # Filter out fields with area less than 5 gunthas
         valid_fields = field_areas_gunthas[field_areas_gunthas >= 5].index
         field_areas_gunthas = field_areas_gunthas[valid_fields]
         field_times = field_times[valid_fields]
         field_dates = field_dates.loc[valid_fields]
 
+        # Calculate traveling distance and time between fields using end and start points
         travel_distances = []
         travel_times = []
         field_ids = list(valid_fields)
@@ -65,9 +89,11 @@ def process_file(file):
             travel_distances.append(distance)
             travel_times.append(time)
 
+        # Append NaN for the last field (no subsequent field)
         travel_distances.append(np.nan)
         travel_times.append(np.nan)
 
+        # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
             'Field ID': field_areas_gunthas.index,
             'Area (Gunthas)': field_areas_gunthas.values,
@@ -78,9 +104,12 @@ def process_file(file):
             'Travel Time to Next Field (minutes)': travel_times
         })
         
+        # Create a satellite map
         map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
         m = folium.Map(location=map_center, zoom_start=12, control_scale=True)
-        mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'
+        
+        # Add Mapbox satellite imagery
+        mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
         folium.TileLayer(
             tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
             attr='Mapbox Satellite Imagery',
@@ -89,10 +118,12 @@ def process_file(file):
             control=True
         ).add_to(m)
         
+        # Add fullscreen control
         plugins.Fullscreen(position='topright').add_to(m)
 
+        # Plot the points on the map
         for idx, row in gps_data.iterrows():
-            color = 'blue' if row['field_id'] in valid_fields else 'red'
+            color = 'blue' if row['field_id'] in valid_fields else 'red'  # Blue for fields, red for noise
             folium.CircleMarker(
                 location=(row['lat'], row['lng']),
                 radius=2,
@@ -101,7 +132,11 @@ def process_file(file):
                 fill_color=color
             ).add_to(m)
 
-        return m, combined_df
+        # Save the map to an HTML file
+        map_path = "map.html"
+        m.save(map_path)
+
+        return map_path, combined_df
 
     except Exception as e:
         st.error(f"An error occurred while processing the file: {e}")
@@ -117,20 +152,21 @@ if 'uploaded_file' not in st.session_state:
 if 'combined_df' not in st.session_state:
     st.session_state.combined_df = None
 
-if 'folium_map' not in st.session_state:
-    st.session_state.folium_map = None
+if 'map_path' not in st.session_state:
+    st.session_state.map_path = None
 
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file is not None:
     st.session_state.uploaded_file = uploaded_file
     st.write("Processing file...")
-    st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
+    st.session_state.map_path, st.session_state.combined_df = process_file(uploaded_file)
 
-if st.session_state.folium_map is not None and st.session_state.combined_df is not None:
+if st.session_state.map_path is not None and st.session_state.combined_df is not None:
     st.write("Field Areas, Times, Dates, and Travel Metrics:", st.session_state.combined_df)
     st.write("Download the combined data as a CSV file:")
     
+    # Provide download link
     csv = st.session_state.combined_df.to_csv(index=False)
     st.download_button(
         label="Download CSV",
@@ -139,4 +175,13 @@ if st.session_state.folium_map is not None and st.session_state.combined_df is n
         mime='text/csv'
     )
     
-    st_folium(st.session_state.folium_map, width=725, height=500)
+    st.write("Map has been created. You can view it by downloading the HTML file:")
+    st.download_button(
+        label="Download Map HTML",
+        data=open(st.session_state.map_path, 'r').read(),
+        file_name='map.html',
+        mime='text/html'
+    )
+
+    # Optionally, provide a link to view the map if hosted online
+    # st.write("Alternatively, view the map [here](<URL_TO_HOSTED_MAP>)")
