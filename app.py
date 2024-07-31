@@ -49,6 +49,10 @@ def process_file(file):
 
         # Calculate the area for each field
         fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
+        if fields.empty:
+            st.error("No fields detected. Please check your data.")
+            return None, None
+        
         field_areas = fields.groupby('field_id').apply(
             lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
 
@@ -74,6 +78,10 @@ def process_file(file):
         field_areas_gunthas = field_areas_gunthas[valid_fields]
         field_times = field_times[valid_fields]
         field_dates = field_dates.loc[valid_fields]
+
+        if field_dates.empty:
+            st.error("No valid fields with sufficient area found.")
+            return None, None
 
         # Identify red points (noise)
         noise_points = gps_data[gps_data['field_id'] == -1]
@@ -119,10 +127,11 @@ def process_file(file):
         times.append(np.nan)  # No travel time for the last field
 
         # Ensure lengths match
-        if len(distances) != len(valid_fields) + len(noise_points) + 1:
-            distances = (distances + [np.nan] * (len(valid_fields) + len(noise_points) + 1))[:len(valid_fields) + len(noise_points) + 1]
-        if len(times) != len(valid_fields) + len(noise_points) + 1:
-            times = (times + [np.nan] * (len(valid_fields) + len(noise_points) + 1))[:len(valid_fields) + len(noise_points) + 1]
+        total_points = len(valid_fields) + len(noise_points) + 1
+        if len(distances) < total_points:
+            distances.extend([np.nan] * (total_points - len(distances)))
+        if len(times) < total_points:
+            times.extend([np.nan] * (total_points - len(times)))
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
