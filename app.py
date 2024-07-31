@@ -106,7 +106,7 @@ def process_file(file):
         
         # Create a satellite map
         map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-        m = folium.Map(location=map_center, zoom_start=12)
+        m = folium.Map(location=map_center, zoom_start=12, control_scale=True)
         
         # Add Mapbox satellite imagery
         mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
@@ -135,7 +135,7 @@ def process_file(file):
         return m, combined_df
 
     except Exception as e:
-        st.error(f"An error occurred: {e}")
+        st.error(f"An error occurred while processing the file: {e}")
         return None, None
 
 # Streamlit app
