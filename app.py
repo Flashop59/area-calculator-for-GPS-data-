@@ -1,180 +1,75 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
 import folium
-from folium import plugins
-from geopy.distance import geodesic
-from shapely.geometry import Polygon
-from sklearn.cluster import DBSCAN
+import pandas as pd
+import streamlit as st
 
-# Function to calculate the area of a polygon using the Shoelace formula
-def calculate_polygon_area(points):
-    if len(points) < 3:
-        return 0
-    poly = Polygon(points)
-    return poly.area  # Area in square degrees
-
-# Function to process the uploaded file and return the map path and field areas
-def process_file(file):
-    try:
-        # Load the CSV file
-        gps_data = pd.read_csv(file)
-
-        # Check the columns available
-        if 'Timestamp' not in gps_data.columns:
-            st.error("The CSV file does not contain a 'Timestamp' column.")
-            return None, None
-        
-        gps_data = gps_data[['lat', 'lng', 'Timestamp']]
-        
-        # Convert Timestamp column to datetime with correct format
-        gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H.%M', errors='coerce', dayfirst=True)
-        
-        # Drop rows where conversion failed
-        gps_data = gps_data.dropna(subset=['Timestamp'])
-        
-        # Cluster the GPS points to identify separate fields
-        coords = gps_data[['lat', 'lng']].values
-        db = DBSCAN(eps=0.00008, min_samples=11).fit(coords)
-        labels = db.labels_
-
-        # Add labels to the data
-        gps_data['field_id'] = labels
-
-        # Calculate the area for each field
-        fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
-        field_areas = fields.groupby('field_id').apply(
-            lambda df: calculate_polygon_area(df[['lat', 'lng']].values))
-
-        # Convert the area from square degrees to square meters (approximation)
-        field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
-
-        # Convert the area from square meters to gunthas (1 guntha = 101.17 m^2)
-        field_areas_gunthas = field_areas_m2 / 101.17
-
-        # Calculate time metrics for each field
-        field_times = fields.groupby('field_id').apply(
-            lambda df: (df['Timestamp'].max() - df['Timestamp'].min()).total_seconds() / 60.0
-        )
-
-        # Extract start and end dates for each field
-        field_dates = fields.groupby('field_id').agg(
-            start_date=('Timestamp', 'min'),
-            end_date=('Timestamp', 'max')
-        )
-
-        # Filter out fields with area less than 5 gunthas
-        valid_fields = field_areas_gunthas[field_areas_gunthas >= 5].index
-        field_areas_gunthas = field_areas_gunthas[valid_fields]
-        field_times = field_times[valid_fields]
-        field_dates = field_dates.loc[valid_fields]
-
-        # Calculate traveling distance and time between fields using end and start points
-        travel_distances = []
-        travel_times = []
-        field_ids = list(valid_fields)
-        
-        for i in range(len(field_ids) - 1):
-            end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-            start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
-            distance = geodesic(end_point, start_point).meters
-            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
-            travel_distances.append(distance)
-            travel_times.append(time)
-
-        # Append NaN for the last field (no subsequent field)
-        travel_distances.append(np.nan)
-        travel_times.append(np.nan)
-
-        # Combine area, time, dates, and travel metrics into a single DataFrame
-        combined_df = pd.DataFrame({
-            'Field ID': field_areas_gunthas.index,
-            'Area (Gunthas)': field_areas_gunthas.values,
-            'Time (Minutes)': field_times.values,
-            'Start Date': field_dates['start_date'].values,
-            'End Date': field_dates['end_date'].values,
-            'Travel Distance to Next Field (meters)': travel_distances,
-            'Travel Time to Next Field (minutes)': travel_times
-        })
-        
-        # Create a satellite map
-        map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-        m = folium.Map(location=map_center, zoom_start=12, control_scale=True)
-        
-        # Add Mapbox satellite imagery
-        mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
-        folium.TileLayer(
-            tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
-            attr='Mapbox Satellite Imagery',
-            name='Satellite',
-            overlay=True,
-            control=True
-        ).add_to(m)
-        
-        # Add fullscreen control
-        plugins.Fullscreen(position='topright').add_to(m)
-
-        # Plot the points on the map
-        for idx, row in gps_data.iterrows():
-            color = 'blue' if row['field_id'] in valid_fields else 'red'  # Blue for fields, red for noise
-            folium.CircleMarker(
-                location=(row['lat'], row['lng']),
-                radius=2,
-                color=color,
-                fill=True,
-                fill_color=color
-            ).add_to(m)
-
-        # Save the map to an HTML file
-        map_path = "map.html"
-        m.save(map_path)
-
-        return map_path, combined_df
-
-    except Exception as e:
-        st.error(f"An error occurred while processing the file: {e}")
-        return None, None
-
-# Streamlit app
-st.title("Field Area and Time Calculation from GPS Data")
-st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
-
-if 'uploaded_file' not in st.session_state:
-    st.session_state.uploaded_file = None
-
-if 'combined_df' not in st.session_state:
-    st.session_state.combined_df = None
-
-if 'map_path' not in st.session_state:
-    st.session_state.map_path = None
-
-uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-
-if uploaded_file is not None:
-    st.session_state.uploaded_file = uploaded_file
-    st.write("Processing file...")
-    st.session_state.map_path, st.session_state.combined_df = process_file(uploaded_file)
-
-if st.session_state.map_path is not None and st.session_state.combined_df is not None:
-    st.write("Field Areas, Times, Dates, and Travel Metrics:", st.session_state.combined_df)
-    st.write("Download the combined data as a CSV file:")
+def process_file(uploaded_file):
+    # Read the file
+    gps_data = pd.read_excel(uploaded_file)
     
-    # Provide download link
-    csv = st.session_state.combined_df.to_csv(index=False)
+    # Ensure 'Timestamp' column is in datetime format
+    gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H:%M')
+    
+    # Calculate field areas and time metrics
+    field_areas_gunthas = gps_data['Estimated Area (gunthas):'].dropna().astype(float).tolist()
+    total_time_minutes = gps_data['Time (min):'].dropna().astype(float).sum()
+    avg_time_diff_minutes = gps_data['Time Difference (s)'].mean() / 60
+    
+    # Calculate distance and time between fields
+    gps_data['distance_next_field'] = gps_data['LatLong Distance (m)'].shift(-1).fillna(0)
+    gps_data['time_next_field'] = gps_data['Time Difference (s)'].shift(-1).fillna(0) / 60
+    
+    # Map settings
+    map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
+    map_token = 'YOUR_MAPBOX_TOKEN'  # Replace with your Mapbox token
+    
+    # Create a Folium map with Mapbox satellite tiles
+    m = folium.Map(
+        location=map_center,
+        zoom_start=12,
+        tiles=f'https://api.mapbox.com/styles/v1/{map_token}/tiles/{{z}}/{{x}}/{{y}}?access_token={map_token}',
+        attr='Mapbox'
+    )
+    
+    # Add points to the map
+    for i, row in gps_data.iterrows():
+        folium.Marker(
+            location=[row['lat'], row['lng']],
+            popup=f"Time: {row['Timestamp']}<br>Speed: {row['Speed (km/hr)']} km/hr",
+            icon=folium.Icon(color='blue')
+        ).add_to(m)
+    
+    # Create a DataFrame to display
+    data = {
+        'Field Index': range(1, len(field_areas_gunthas) + 1),
+        'Estimated Area (gunthas)': field_areas_gunthas,
+        'Total Time (minutes)': [total_time_minutes] * len(field_areas_gunthas),
+        'Avg Time Difference (minutes)': [avg_time_diff_minutes] * len(field_areas_gunthas),
+        'Distance to Next Field (m)': gps_data['distance_next_field'],
+        'Time to Next Field (minutes)': gps_data['time_next_field']
+    }
+    
+    combined_df = pd.DataFrame(data)
+    
+    return m, combined_df
+
+# Streamlit interface
+st.title("GPS Data Analysis")
+
+uploaded_file = st.file_uploader("Upload GPS Data File", type="xlsx")
+
+if uploaded_file:
+    folium_map, combined_df = process_file(uploaded_file)
+    
+    st.write("Map with GPS Data")
+    st.markdown(folium_map._repr_html_(), unsafe_allow_html=True)
+    
+    st.write("Data Summary")
+    st.dataframe(combined_df)
+    
+    # Download the combined DataFrame
     st.download_button(
         label="Download CSV",
-        data=csv,
-        file_name='field_areas_times_dates_and_travel_metrics.csv',
+        data=combined_df.to_csv(index=False).encode('utf-8'),
+        file_name='combined_data.csv',
         mime='text/csv'
     )
-    
-    st.write("Map has been created. You can view it by downloading the HTML file:")
-    st.download_button(
-        label="Download Map HTML",
-        data=open(st.session_state.map_path, 'r').read(),
-        file_name='map.html',
-        mime='text/html'
-    )
-
-    # Optionally, provide a link to view the map if hosted online
-    # st.write("Alternatively, view the map [here](<URL_TO_HOSTED_MAP>)")
