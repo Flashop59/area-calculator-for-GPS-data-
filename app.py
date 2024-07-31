@@ -109,7 +109,7 @@ def process_file(file):
     m = folium.Map(location=map_center, zoom_start=12)
     
     # Add Mapbox satellite imagery
-    mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
+    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
     folium.TileLayer(
         tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
         attr='Mapbox Satellite Imagery',
