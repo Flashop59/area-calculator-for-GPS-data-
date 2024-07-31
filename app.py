@@ -93,8 +93,11 @@ def process_file(file):
             travel_distances.append(distance)
             travel_times.append(time)
 
-        travel_distances.append(np.nan)  # No travel distance for the last point
-        travel_times.append(np.nan)  # No travel time for the last point
+        # Ensure lengths match by appending NaNs if necessary
+        if len(travel_distances) < len(noise_points_sorted):
+            travel_distances.append(np.nan)
+        if len(travel_times) < len(noise_points_sorted):
+            travel_times.append(np.nan)
 
         # Combine area, time, dates, and travel metrics into a single DataFrame
         combined_df = pd.DataFrame({
