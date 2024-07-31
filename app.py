@@ -1,162 +1,108 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from shapely.geometry import Polygon
-from sklearn.cluster import DBSCAN
-from scipy.spatial import ConvexHull
 import folium
-from folium import plugins
+from folium.plugins import Draw
 from streamlit_folium import st_folium
-import io
+from datetime import datetime
 from geopy.distance import geodesic
 
-# Function to calculate the area of a field in square meters using convex hull
-def calculate_convex_hull_area(points):
-    if len(points) < 3:  # Not enough points to form a polygon
-        return 0
-    try:
-        hull = ConvexHull(points)
-        poly = Polygon(points[hull.vertices])
-        return poly.area  # Area in square degrees
-    except Exception:
-        return 0
-
-# Function to process the uploaded file and return the map and field areas
+# Function to process the uploaded file and calculate areas, times, distances, and traveling times
 def process_file(file):
-    # Load the CSV file
     gps_data = pd.read_csv(file)
+    gps_data.columns = gps_data.columns.str.strip()
 
-    # Check the columns available
-    st.write("Available columns:", gps_data.columns.tolist())
-    
-    # Use the correct column names
-    if 'Timestamp' not in gps_data.columns:
-        st.error("The CSV file does not contain a 'Timestamp' column.")
-        return None, None
-    
-    gps_data = gps_data[['lat', 'lng', 'Timestamp']]
-    
-    # Convert Timestamp column to datetime with correct format
-    gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H.%M', errors='coerce', dayfirst=True)
-    
-    # Drop rows where conversion failed
+    # Convert 'Timestamp' to datetime
+    gps_data['Timestamp'] = pd.to_datetime(gps_data['Timestamp'], format='%d-%m-%Y %H:%M', errors='coerce')
     gps_data = gps_data.dropna(subset=['Timestamp'])
-    
-    # Cluster the GPS points to identify separate fields
-    coords = gps_data[['lat', 'lng']].values
-    db = DBSCAN(eps=0.00008, min_samples=11).fit(coords)
-    labels = db.labels_
 
-    # Add labels to the data
-    gps_data['field_id'] = labels
+    # Group by 'Point' to get areas and times for each field
+    grouped = gps_data.groupby('Point')
+    field_areas_gunthas = grouped['Estimated Area (gunthas):'].first().fillna(0).tolist()
+    dates = grouped['Timestamp'].min().dt.date.tolist()
+    times = grouped['Time Difference (s)'].sum() / 60  # Convert seconds to minutes
+    total_times = times.tolist()
+    time_diffs = grouped['Time Difference (s)'].mean() / 60  # Average time difference in minutes
+    avg_time_diffs = time_diffs.tolist()
 
-    # Calculate the area for each field
-    fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
-    field_areas = fields.groupby('field_id').apply(
-        lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
-
-    # Convert the area from square degrees to square meters (approximation)
-    field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
-
-    # Convert the area from square meters to gunthas (1 guntha = 101.17 m^2)
-    field_areas_gunthas = field_areas_m2 / 101.17
-
-    # Calculate time metrics for each field
-    field_times = fields.groupby('field_id').apply(
-        lambda df: (df['Timestamp'].max() - df['Timestamp'].min()).total_seconds() / 60.0
-    )
-
-    # Extract start and end dates for each field
-    field_dates = fields.groupby('field_id').agg(
-        start_date=('Timestamp', 'min'),
-        end_date=('Timestamp', 'max')
-    )
-
-    # Filter out fields with area less than 5 gunthas
-    valid_fields = field_areas_gunthas[field_areas_gunthas >= 5].index
-    field_areas_gunthas = field_areas_gunthas[valid_fields]
-    field_times = field_times[valid_fields]
-    field_dates = field_dates.loc[valid_fields]
-
-    # Calculate traveling distance and time between fields using end and start points
+    # Calculate travel distances and times between consecutive points
     travel_distances = []
     travel_times = []
-    field_ids = list(valid_fields)
-    for i in range(len(field_ids) - 1):
-        end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-        start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
-        distance = geodesic(end_point, start_point).meters
-        time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+
+    for i in range(len(dates) - 1):
+        point1 = gps_data[gps_data['Point'] == i+1][['lat', 'lng']].iloc[-1]
+        point2 = gps_data[gps_data['Point'] == i+2][['lat', 'lng']].iloc[0]
+        distance = geodesic((point1['lat'], point1['lng']), (point2['lat'], point2['lng'])).meters
         travel_distances.append(distance)
-        travel_times.append(time)
+        
+        time1 = gps_data[gps_data['Point'] == i+1]['Timestamp'].iloc[-1]
+        time2 = gps_data[gps_data['Point'] == i+2]['Timestamp'].iloc[0]
+        time_diff = (time2 - time1).total_seconds() / 60  # Convert seconds to minutes
+        travel_times.append(time_diff)
 
-    travel_distances.append(np.nan)  # No travel distance for the last field
-    travel_times.append(np.nan)  # No travel time for the last field
+    travel_distances.append(0)  # No travel distance after the last point
+    travel_times.append(0)      # No travel time after the last point
 
-    # Combine area, time, dates, and travel metrics into a single DataFrame
+    # Create a combined DataFrame
     combined_df = pd.DataFrame({
-        'Field ID': field_areas_gunthas.index,
-        'Area (Gunthas)': field_areas_gunthas.values,
-        'Time (Minutes)': field_times.values,
-        'Start Date': field_dates['start_date'].values,
-        'End Date': field_dates['end_date'].values,
-        'Travel Distance to Next Field (meters)': travel_distances,
-        'Travel Time to Next Field (minutes)': travel_times
+        'Field': range(1, len(field_areas_gunthas) + 1),
+        'Date': dates,
+        'Area (gunthas)': field_areas_gunthas,
+        'Total Time (minutes)': total_times,
+        'Avg Time Diff (minutes)': avg_time_diffs,
+        'Travel Distance (meters)': travel_distances,
+        'Travel Time (minutes)': travel_times
     })
-    
-    # Create a satellite map
-    map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-    m = folium.Map(location=map_center, zoom_start=12)
-    
-    # Add Mapbox satellite imagery
-    mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
-    folium.TileLayer(
-        tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
-        attr='Mapbox Satellite Imagery',
-        name='Satellite',
-        overlay=True,
-        control=True
-    ).add_to(m)
-    
-    # Add fullscreen control
-    plugins.Fullscreen(position='topright').add_to(m)
 
-    # Plot the points on the map
-    for idx, row in gps_data.iterrows():
-        color = 'blue' if row['field_id'] in valid_fields else 'red'  # Blue for fields, red for noise
+    # Create a folium map with satellite imagery
+    m = folium.Map(location=[gps_data['lat'].mean(), gps_data['lng'].mean()], zoom_start=15, tiles='OpenStreetMap')
+    folium.TileLayer('Stamen Terrain').add_to(m)
+    folium.TileLayer('Stamen Toner').add_to(m)
+    folium.TileLayer('Stamen Watercolor').add_to(m)
+    folium.TileLayer('cartodb positron').add_to(m)
+    folium.TileLayer('cartodb dark_matter').add_to(m)
+    folium.TileLayer(
+        tiles='https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        attr='Google',
+        name='Google Satellite',
+        max_zoom=20,
+        subdomains=['mt0', 'mt1', 'mt2', 'mt3']
+    ).add_to(m)
+
+    for _, row in gps_data.iterrows():
         folium.CircleMarker(
-            location=(row['lat'], row['lng']),
-            radius=2,
-            color=color,
-            fill=True,
-            fill_color=color
+            location=[row['lat'], row['lng']],
+            radius=3,
+            color='red' if row['State'] == 'STOP' else 'blue',
+            fill=True
         ).add_to(m)
 
     return m, combined_df
 
 # Streamlit app
-st.title("Field Area and Time Calculation from GPS Data")
-st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
+st.title('Field Area and Time Calculator with Satellite Map')
 
-uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+# File uploader with session state handling
+uploaded_file = st.file_uploader("Upload GPS data CSV", type="csv", key='file_uploader')
 
 if uploaded_file is not None:
-    st.write("Processing file...")
-    folium_map, combined_df = process_file(uploaded_file)
-    
-    if folium_map is not None:
-        st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
-        st.write("Download the combined data as a CSV file:")
-        
-        # Provide download link
-        csv = combined_df.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name='field_areas_times_dates_and_travel_metrics.csv',
-            mime='text/csv'
-        )
-        
-        st_folium(folium_map, width=725, height=500)
+    if 'processed_data' not in st.session_state:
+        folium_map, combined_df = process_file(uploaded_file)
+        st.session_state['folium_map'] = folium_map
+        st.session_state['combined_df'] = combined_df
     else:
-        st.error("Failed to process the file.")
+        folium_map = st.session_state['folium_map']
+        combined_df = st.session_state['combined_df']
+
+    # Display map
+    st.subheader("Map of Field Operations")
+    st_folium(folium_map, width=800, height=600)
+
+    # Display combined data
+    st.subheader("Field Data")
+    st.write(combined_df)
+
+    # Download combined data
+    csv = combined_df.to_csv(index=False).encode()
+    st.download_button(label="Download Combined Data as CSV", data=csv, file_name='combined_data.csv', mime='text/csv')
+
