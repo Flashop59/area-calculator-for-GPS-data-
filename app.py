@@ -91,26 +91,36 @@ def process_file(file):
     travel_distances = []
     travel_times = []
     field_ids = list(valid_fields)
-    for i in range(len(field_ids) - 1):
-        centroid1 = centroids.loc[field_ids[i]]
-        centroid2 = centroids.loc[field_ids[i + 1]]
-        distance = geodesic(centroid1, centroid2).kilometers
-        time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
-        travel_distances.append(distance)
-        travel_times.append(time)
+    
+    if len(field_ids) > 1:
+        for i in range(len(field_ids) - 1):
+            centroid1 = centroids.loc[field_ids[i]]
+            centroid2 = centroids.loc[field_ids[i + 1]]
+            distance = geodesic(centroid1, centroid2).kilometers
+            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+            travel_distances.append(distance)
+            travel_times.append(time)
 
-    # Calculate distance from last point of one field to first point of next field
-    for i in range(len(field_ids) - 1):
-        end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-        start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
-        distance = geodesic(end_point, start_point).kilometers
-        time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
-        travel_distances.append(distance)
-        travel_times.append(time)
+        # Calculate distance from last point of one field to first point of the next field
+        for i in range(len(field_ids) - 1):
+            end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
+            start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
+            distance = geodesic(end_point, start_point).kilometers
+            time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+            travel_distances.append(distance)
+            travel_times.append(time)
 
-    # Append NaN for the last field
-    travel_distances.append(np.nan)
-    travel_times.append(np.nan)
+        # Append NaN for the last field
+        travel_distances.append(np.nan)
+        travel_times.append(np.nan)
+    else:
+        travel_distances.append(np.nan)
+        travel_times.append(np.nan)
+
+    # Ensure lengths match for DataFrame
+    if len(travel_distances) != len(field_areas_gunthas):
+        travel_distances = travel_distances[:len(field_areas_gunthas)]
+        travel_times = travel_times[:len(field_areas_gunthas)]
 
     # Combine area, time, dates, and travel metrics into a single DataFrame
     combined_df = pd.DataFrame({
