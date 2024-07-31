@@ -109,7 +109,7 @@ def process_file(file):
     m = folium.Map(location=map_center, zoom_start=12)
     
     # Add Mapbox satellite imagery
-    mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
+    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo5NzkycmIwN2RxMmtzZHZvNWpjYmQ2In0.A_FZYl5zKjwSZpJuP_MHiA'  # Replace with your Mapbox access token
     folium.TileLayer(
         tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
         attr='Mapbox Satellite Imagery',
@@ -138,25 +138,33 @@ def process_file(file):
 st.title("Field Area and Time Calculation from GPS Data")
 st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
 
+if 'uploaded_file' not in st.session_state:
+    st.session_state.uploaded_file = None
+
+if 'combined_df' not in st.session_state:
+    st.session_state.combined_df = None
+
+if 'folium_map' not in st.session_state:
+    st.session_state.folium_map = None
+
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file is not None:
+    st.session_state.uploaded_file = uploaded_file
     st.write("Processing file...")
-    folium_map, combined_df = process_file(uploaded_file)
+    st.session_state.folium_map, st.session_state.combined_df = process_file(uploaded_file)
+
+if st.session_state.folium_map is not None and st.session_state.combined_df is not None:
+    st.write("Field Areas, Times, Dates, and Travel Metrics:", st.session_state.combined_df)
+    st.write("Download the combined data as a CSV file:")
     
-    if folium_map is not None:
-        st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
-        st.write("Download the combined data as a CSV file:")
-        
-        # Provide download link
-        csv = combined_df.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name='field_areas_times_dates_and_travel_metrics.csv',
-            mime='text/csv'
-        )
-        
-        st_folium(folium_map, width=725, height=500)
-    else:
-        st.error("Failed to process the file.")
+    # Provide download link
+    csv = st.session_state.combined_df.to_csv(index=False)
+    st.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name='field_areas_times_dates_and_travel_metrics.csv',
+        mime='text/csv'
+    )
+    
+    st_folium(st.session_state.folium_map, width=725, height=500)
