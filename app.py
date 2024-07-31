@@ -111,8 +111,8 @@ def process_file(file):
     # Add Mapbox satellite imagery
     mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
     folium.TileLayer(
-        tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
-        attr='Mapbox Satellite Imagery',
+        tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{z}/{x}/{y}?access_token=' + mapbox_token,
+        attr='Mapbox',
         name='Satellite',
         overlay=True,
         control=True
