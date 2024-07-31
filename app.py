@@ -178,7 +178,7 @@ st.title("Field Area and Time Calculation from GPS Data")
 st.markdown("""
     <style>
         .header { display: flex; align-items: center; }
-        .header img { height: 60px; margin-right: 20px; }
+        .header img { height: 80px; margin-right: 35px; }
     </style>
     <div class="header">
         <img src="https://i.ibb.co/JjWJLpd/image.png" alt="Logo">
