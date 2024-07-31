@@ -1,27 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from shapely.geometry import Polygon
-from sklearn.cluster import DBSCAN
-from scipy.spatial import ConvexHull
 import folium
 from folium import plugins
 from geopy.distance import geodesic
-import os
+from shapely.geometry import Polygon
+from sklearn.cluster import DBSCAN
 
-# Function to calculate the area of a field in square meters using convex hull
-def calculate_convex_hull_area(points):
-    if len(points) < 3:  # Not enough points to form a polygon
+# Function to calculate the area of a polygon using the Shoelace formula
+def calculate_polygon_area(points):
+    if len(points) < 3:
         return 0
-    try:
-        hull = ConvexHull(points)
-        poly = Polygon(points[hull.vertices])
-        return poly.area  # Area in square degrees
-    except Exception as e:
-        st.error(f"Error calculating convex hull area: {e}")
-        return 0
+    poly = Polygon(points)
+    return poly.area  # Area in square degrees
 
-# Function to process the uploaded file and return the HTML map path and field areas
+# Function to process the uploaded file and return the map path and field areas
 def process_file(file):
     try:
         # Load the CSV file
@@ -51,7 +44,7 @@ def process_file(file):
         # Calculate the area for each field
         fields = gps_data[gps_data['field_id'] != -1]  # Exclude noise points
         field_areas = fields.groupby('field_id').apply(
-            lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
+            lambda df: calculate_polygon_area(df[['lat', 'lng']].values))
 
         # Convert the area from square degrees to square meters (approximation)
         field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
