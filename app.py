@@ -8,6 +8,7 @@ import folium
 from folium import plugins
 from streamlit_folium import st_folium
 import io
+from geopy.distance import geodesic
 
 # Function to calculate the area of a field in square meters using convex hull
 def calculate_convex_hull_area(points):
@@ -77,13 +78,30 @@ def process_file(file):
     field_times = field_times[valid_fields]
     field_dates = field_dates.loc[valid_fields]
 
-    # Combine area, time, and dates into a single DataFrame
+    # Calculate traveling distance and time between fields using end and start points
+    travel_distances = []
+    travel_times = []
+    field_ids = list(valid_fields)
+    for i in range(len(field_ids) - 1):
+        end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
+        start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
+        distance = geodesic(end_point, start_point).meters
+        time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+        travel_distances.append(distance)
+        travel_times.append(time)
+
+    travel_distances.append(np.nan)  # No travel distance for the last field
+    travel_times.append(np.nan)  # No travel time for the last field
+
+    # Combine area, time, dates, and travel metrics into a single DataFrame
     combined_df = pd.DataFrame({
         'Field ID': field_areas_gunthas.index,
         'Area (Gunthas)': field_areas_gunthas.values,
         'Time (Minutes)': field_times.values,
         'Start Date': field_dates['start_date'].values,
-        'End Date': field_dates['end_date'].values
+        'End Date': field_dates['end_date'].values,
+        'Travel Distance to Next Field (meters)': travel_distances,
+        'Travel Time to Next Field (minutes)': travel_times
     })
     
     # Create a satellite map
@@ -91,7 +109,7 @@ def process_file(file):
     m = folium.Map(location=map_center, zoom_start=12)
     
     # Add Mapbox satellite imagery
-    mapbox_token = 'pk.eyJ1IjoiZmxhc2hvcDAwNyIsImEiOiJjbHo4b2R6OTYwM3p1Mm5xejJnZG1peHl3In0.Bg2ox2WZ0dF18eGGvB9MdA'  # Replace with your Mapbox access token
+    mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
     folium.TileLayer(
         tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token=' + mapbox_token,
         attr='Mapbox Satellite Imagery',
@@ -127,7 +145,7 @@ if uploaded_file is not None:
     folium_map, combined_df = process_file(uploaded_file)
     
     if folium_map is not None:
-        st.write("Field Areas, Times, and Dates:", combined_df)
+        st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
         st.write("Download the combined data as a CSV file:")
         
         # Provide download link
@@ -135,7 +153,7 @@ if uploaded_file is not None:
         st.download_button(
             label="Download CSV",
             data=csv,
-            file_name='field_areas_times_and_dates.csv',
+            file_name='field_areas_times_dates_and_travel_metrics.csv',
             mime='text/csv'
         )
         
