@@ -106,7 +106,7 @@ def process_file(file):
     
     # Create a satellite map
     map_center = [gps_data['lat'].mean(), gps_data['lng'].mean()]
-    m = folium.Map(location=map_center, zoom_start=12, tiles='CartoDB positron')
+    m = folium.Map(location=map_center, zoom_start=12, tiles=None)
     
     # Add Mapbox satellite imagery
     mapbox_token = 'YOUR_MAPBOX_ACCESS_TOKEN'  # Replace with your Mapbox access token
