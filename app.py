@@ -25,6 +25,14 @@ def process_file(file):
     time_diffs = grouped['Time Difference (s)'].mean() / 60  # Average time difference in minutes
     avg_time_diffs = time_diffs.tolist()
 
+    # Ensure all lists are of the same length
+    min_length = min(len(field_areas_gunthas), len(dates), len(total_times), len(avg_time_diffs))
+
+    field_areas_gunthas = field_areas_gunthas[:min_length]
+    dates = dates[:min_length]
+    total_times = total_times[:min_length]
+    avg_time_diffs = avg_time_diffs[:min_length]
+
     # Calculate travel distances and times between consecutive points
     travel_distances = []
     travel_times = []
@@ -43,9 +51,13 @@ def process_file(file):
     travel_distances.append(0)  # No travel distance after the last point
     travel_times.append(0)      # No travel time after the last point
 
+    # Ensure travel distances and travel times are the same length as other lists
+    travel_distances = travel_distances[:min_length]
+    travel_times = travel_times[:min_length]
+
     # Create a combined DataFrame
     combined_df = pd.DataFrame({
-        'Field': range(1, len(field_areas_gunthas) + 1),
+        'Field': range(1, min_length + 1),
         'Date': dates,
         'Area (gunthas)': field_areas_gunthas,
         'Total Time (minutes)': total_times,
@@ -105,4 +117,3 @@ if uploaded_file is not None:
     # Download combined data
     csv = combined_df.to_csv(index=False).encode()
     st.download_button(label="Download Combined Data as CSV", data=csv, file_name='combined_data.csv', mime='text/csv')
-
