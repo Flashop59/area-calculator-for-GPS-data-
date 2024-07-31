@@ -174,8 +174,11 @@ def get_map_download_link(map_obj, filename='map.html'):
 # Streamlit app
 st.title("Field Area and Time Calculation from GPS Data")
 
-# Display logo
-st.image("images/logo.png", width=200)  # Adjust the width as needed
+# Upload logo image
+logo_file = st.file_uploader("Upload Logo Image", type=["png", "jpg", "jpeg"])
+
+if logo_file:
+    st.image(logo_file, width=200)  # Adjust the width as needed
 
 st.write("Upload a CSV file with 'lat', 'lng', and 'Timestamp' columns to calculate field areas and visualize them on a satellite map.")
 
