@@ -21,6 +21,10 @@ def calculate_convex_hull_area(points):
     except Exception:
         return 0
 
+# Function to calculate centroid of a set of points
+def calculate_centroid(points):
+    return np.mean(points, axis=0)
+
 # Function to process the uploaded file and return the map and field areas
 def process_file(file):
     # Load the CSV file
@@ -78,20 +82,35 @@ def process_file(file):
     field_times = field_times[valid_fields]
     field_dates = field_dates.loc[valid_fields]
 
-    # Calculate traveling distance and time between fields using end and start points
+    # Calculate centroids of each field
+    centroids = fields.groupby('field_id').apply(
+        lambda df: calculate_centroid(df[['lat', 'lng']].values)
+    )
+
+    # Calculate traveling distance and time between field centroids
     travel_distances = []
     travel_times = []
     field_ids = list(valid_fields)
     for i in range(len(field_ids) - 1):
-        end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
-        start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
-        distance = geodesic(end_point, start_point).meters
+        centroid1 = centroids.loc[field_ids[i]]
+        centroid2 = centroids.loc[field_ids[i + 1]]
+        distance = geodesic(centroid1, centroid2).kilometers
         time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
         travel_distances.append(distance)
         travel_times.append(time)
 
-    travel_distances.append(np.nan)  # No travel distance for the last field
-    travel_times.append(np.nan)  # No travel time for the last field
+    # Calculate distance from last point of one field to first point of next field
+    for i in range(len(field_ids) - 1):
+        end_point = fields[fields['field_id'] == field_ids[i]][['lat', 'lng']].values[-1]
+        start_point = fields[fields['field_id'] == field_ids[i + 1]][['lat', 'lng']].values[0]
+        distance = geodesic(end_point, start_point).kilometers
+        time = (field_dates.loc[field_ids[i + 1], 'start_date'] - field_dates.loc[field_ids[i], 'end_date']).total_seconds() / 60.0
+        travel_distances.append(distance)
+        travel_times.append(time)
+
+    # Append NaN for the last field
+    travel_distances.append(np.nan)
+    travel_times.append(np.nan)
 
     # Combine area, time, dates, and travel metrics into a single DataFrame
     combined_df = pd.DataFrame({
@@ -100,7 +119,7 @@ def process_file(file):
         'Time (Minutes)': field_times.values,
         'Start Date': field_dates['start_date'].values,
         'End Date': field_dates['end_date'].values,
-        'Travel Distance to Next Field (km)': travel_distances ,
+        'Travel Distance to Next Field (km)': travel_distances,
         'Travel Time to Next Field (minutes)': travel_times
     })
     
