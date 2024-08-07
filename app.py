@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from shapely.geometry import Polygon
-from shapely.ops import transform
 from sklearn.cluster import DBSCAN
 from scipy.spatial import ConvexHull
 import folium
@@ -10,7 +9,6 @@ from folium import plugins
 import io
 from geopy.distance import geodesic
 import base64
-import pyproj
 
 # Function to calculate the area of a field in square meters using convex hull
 def calculate_convex_hull_area(points):
@@ -19,12 +17,7 @@ def calculate_convex_hull_area(points):
     try:
         hull = ConvexHull(points)
         poly = Polygon(points[hull.vertices])
-
-        # Project the polygon to a suitable UTM zone for accurate area calculation
-        proj = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32643", always_xy=True)
-        projected_poly = transform(proj.transform, poly)
-
-        return projected_poly.area  # Area in square meters
+        return poly.area  # Area in square degrees
     except Exception:
         return 0
 
@@ -66,8 +59,11 @@ def process_file(file):
     field_areas = fields.groupby('field_id').apply(
         lambda df: calculate_convex_hull_area(df[['lat', 'lng']].values))
 
+    # Convert the area from square degrees to square meters (approximation)
+    field_areas_m2 = field_areas * 0.77 * (111000 ** 2)  # rough approximation
+
     # Convert the area from square meters to gunthas (1 guntha = 101.17 m^2)
-    field_areas_gunthas = field_areas / 101.17
+    field_areas_gunthas = field_areas_m2 / 101.17
 
     # Calculate time metrics for each field
     field_times = fields.groupby('field_id').apply(
@@ -201,13 +197,18 @@ if uploaded_file is not None:
     if folium_map is not None:
         st.write("Field Areas, Times, Dates, and Travel Metrics:", combined_df)
         st.write("Download the combined data as a CSV file:")
+        
+        # Provide download link
+        csv = combined_df.to_csv(index=False)
         st.download_button(
             label="Download CSV",
-            data=combined_df.to_csv(index=False).encode('utf-8'),
-            file_name='field_data.csv',
+            data=csv,
+            file_name='field_areas_times_dates_and_travel_metrics.csv',
             mime='text/csv'
         )
-        st.write("Map:")
-        st.components.v1.html(folium_map._repr_html_(), height=600)
-
-        st.write(get_map_download_link(folium_map), unsafe_allow_html=True)
+        
+        # Provide download link for map
+        map_download_link = get_map_download_link(folium_map)
+        st.markdown(map_download_link, unsafe_allow_html=True)
+    else:
+        st.error("Failed to process the file.")
